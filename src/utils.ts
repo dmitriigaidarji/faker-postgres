@@ -1,7 +1,12 @@
 import sql from "./db";
 import { faker } from "@faker-js/faker";
 
-type IDataType = "character varying" | "timestamp without time zone";
+type IDataType =
+  | "character varying"
+  | "timestamp without time zone"
+  | "integer"
+  | "bigint"
+  | "boolean";
 
 interface ITableColumns {
   column_name: string;
@@ -21,17 +26,39 @@ WHERE
     table_name = ${table};
   `;
 }
-
-function getValueForDataType(type: IDataType, max_size: number | null) {
-  switch (type) {
+const personNameKeys = [
+  "responsible_person",
+  "investigator",
+  "sqa_contact",
+  "site_qa_approval_by",
+  "area_manager",
+];
+function getValueForDataType({
+  data_type,
+  column_name,
+  max_size,
+}: ITableColumns) {
+  switch (data_type) {
     case "character varying":
+      if (personNameKeys.includes(column_name)) {
+        return faker.person
+          .fullName()
+          .slice(0, max_size ? Math.floor(max_size / 4) : 100);
+      }
       return faker.string
         .uuid()
-        .slice(0, max_size ? Math.floor(max_size / 4) : 10);
+        .slice(0, max_size ? Math.floor(max_size / 4) : 100);
     case "timestamp without time zone":
       return faker.date.past();
+    case "integer":
+    case "bigint":
+      return faker.number.int({
+        max: 999999,
+      });
+    case "boolean":
+      return Math.random() > 0.5;
     default:
-      throw "Unknown data type: " + type;
+      throw "Unknown data type: " + data_type;
   }
 }
 
@@ -51,9 +78,15 @@ export async function insertValuesIntoTable({
   table: string;
   values: any[];
 }) {
-  return sql`
-    insert into ${sql(table)} ${sql(values)}
-    `.then((r) => values);
+  const copied = values.slice();
+  while (copied.length > 0) {
+    console.log("left to insert", table, copied.length);
+    const toInsert = copied.splice(0, 1000);
+    await sql`
+    insert into ${sql(table)} ${sql(toInsert)}
+    `;
+  }
+  return values;
 }
 
 export async function insertValuesIntoTableWithOptions({
@@ -65,13 +98,13 @@ export async function insertValuesIntoTableWithOptions({
   columns: ITableColumns[];
   options: InsertOptions;
 }) {
+  console.log("insertValuesIntoTableWithOptions", table);
   const values: any[] = [];
   for (let i = 0; i < options.amount; i++) {
     const value: any = {};
-    columns.forEach(({ column_name, data_type, max_size }) => {
-      value[column_name] = getValueForDataType(data_type, max_size);
+    columns.forEach((c) => {
+      value[c.column_name] = getValueForDataType(c);
     });
-
     if (options.overwrite) {
       for (const {
         column,
